@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Professional Realtime Monitoring Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { margin:0; background:#0f172a; color:#fff; font-family:'Inter',sans-serif; }
+    header { background:#111827; padding:20px 32px; font-weight:600; font-size:20px; box-shadow:0 2px 10px rgba(0,0,0,.4); }
+    .grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(360px,1fr)); gap:20px; padding:24px; }
+    .card { background:#111827; border-radius:12px; padding:16px; box-shadow:0 6px 30px rgba(0,0,0,.4); }
+    .title { color:#93c5fd; margin-bottom:8px; }
+    .value { font-size:24px; color:#38bdf8; margin-bottom:8px; }
+    canvas { width:100% !important; height:220px !important; }
+  </style>
+</head>
+<body>
+  <header>Professional Realtime Monitoring Dashboard</header>
+  <div class="grid">
+    <div class="card">
+      <div class="title">CPU</div>
+      <div id="cpuValue" class="value">0%</div>
+      <canvas id="cpuChart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="title">Memory</div>
+      <div id="ramValue" class="value">0%</div>
+      <canvas id="ramChart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="title">Network (KB/s)</div>
+      <div id="netValue" class="value">Up 0 | Down 0</div>
+      <canvas id="netChart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="title">Storage</div>
+      <div id="storageValue" class="value">0%</div>
+      <canvas id="storageChart"></canvas>
+    </div>
+  </div>
+
+<script>
+const charts = {};
+function createChart(id, label1, label2=null) {
+  const datasets = [{
+    label: label1,
+    borderColor: "#3b82f6",
+    backgroundColor: "rgba(59,130,246,0.18)",
+    data: [],
+    tension: 0.3,
+    fill: true
+  }];
+  if (label2) datasets.push({
+    label: label2,
+    borderColor: "#10b981",
+    backgroundColor: "rgba(16,185,129,0.18)",
+    data: [],
+    tension: 0.3,
+    fill: true
+  });
+  return new Chart(document.getElementById(id), {
+    type: "line",
+    data: { labels: [], datasets },
+    options: { responsive:true, scales:{ y:{ beginAtZero:true } } }
+  });
+}
+
+charts.cpu = createChart('cpuChart','CPU %');
+charts.ram = createChart('ramChart','RAM %');
+charts.net = createChart('netChart','Upload KB/s','Download KB/s');
+charts.storage = createChart('storageChart','Storage %');
+
+let tick = 0;
+function pushData(chart, label, v1, v2=null) {
+  chart.data.labels.push(label);
+  if(chart.data.labels.length>30) chart.data.labels.shift();
+
+  chart.data.datasets[0].data.push(v1);
+  if(chart.data.datasets[0].data.length>30) chart.data.datasets[0].data.shift();
+
+  if(v2 !== null){
+    chart.data.datasets[1].data.push(v2);
+    if(chart.data.datasets[1].data.length>30) chart.data.datasets[1].data.shift();
+  }
+  chart.update();
+}
+
+async function fetchAll(){
+  const [cpu, ram, net, storage] = await Promise.all([
+    fetch('/system/cpu').then(r=>r.json()),
+    fetch('/system/memory').then(r=>r.json()),
+    fetch('/system/network').then(r=>r.json()),
+    fetch('/system/storage').then(r=>r.json()),
+  ]);
+  return {cpu, ram, net, storage};
+}
+
+async function sendLog(sample){
+  try {
+    await fetch('/system/log', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': '12345'
+      },
+      body: JSON.stringify(sample)
+    });
+  } catch(e){
+    console.warn('log send failed', e);
+  }
+}
+
+async function update(){
+  const {cpu, ram, net, storage} = await fetchAll();
+  const timeLabel = new Date().toLocaleTimeString();
+  document.getElementById('cpuValue').innerText = cpu.cpu_usage_percent + '%';
+  document.getElementById('ramValue').innerText = ram.memory_usage_percent + '%';
+  document.getElementById('netValue').innerText = `Up ${net.upload_speed_kb_s} | Down ${net.download_speed_kb_s}`;
+  document.getElementById('storageValue').innerText = storage.storage_usage_percent + '%';
+
+  pushData(charts.cpu, timeLabel, cpu.cpu_usage_percent);
+  pushData(charts.ram, timeLabel, ram.memory_usage_percent);
+  pushData(charts.net, timeLabel, net.upload_speed_kb_s, net.download_speed_kb_s);
+  pushData(charts.storage, timeLabel, storage.storage_usage_percent);
+
+  // build sample for logging
+  const sample = {
+    cpu: cpu.cpu_usage_percent,
+    ram: ram.memory_usage_percent,
+    upload: net.upload_speed_kb_s,
+    download: net.download_speed_kb_s,
+    storage: storage.storage_usage_percent,
+    total_upload_mb: net.total_upload_mb,
+    total_download_mb: net.total_download_mb
+  };
+
+  tick++;
+  // send log every 5 seconds
+  if (tick % 5 === 0) {
+    sendLog(sample);
+  }
+}
+
+setInterval(update, 1000);
+update();
+</script>
+</body>
+</html>

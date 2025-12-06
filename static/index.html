@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard Offline</title>
+</head>
+<body>
+    <h1>Data User</h1>
+    <div id="list"></div>
+
+    <script>
+        fetch("http://localhost:8000/users/list")
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("list").innerHTML = JSON.stringify(data);
+            })
+    </script>
+
+</body>
+</html>
